@@ -2152,6 +2152,7 @@ function searchFromDiscover(dep, arr, date) {
   const oneWay = document.querySelector('input[name=trip_type][value="one_way"]');
   if (oneWay) { oneWay.checked = true; toggleReturn(); }
   document.getElementById('flights-form').requestSubmit();
+  setTimeout(() => document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
 }
 
 async function findDeals() {

@@ -49,7 +49,9 @@ app = FastAPI()
 
 # --- Database ---
 
-DB_PATH = Path(__file__).parent / "skyfare.db"
+DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR.mkdir(exist_ok=True)
+DB_PATH = DATA_DIR / "skyfare.db"
 
 
 def get_db() -> sqlite3.Connection:
@@ -485,7 +487,7 @@ async def search_dates(req: DateSearchRequest):
 
 # --- Alerts ---
 
-DEALS_FILE = Path(__file__).parent / "deals.json"
+DEALS_FILE = DATA_DIR / "deals.json"
 CITY_IMAGES_FILE = Path(__file__).parent / "city_images.json"
 DISCOVER_DESTINATIONS = [
     {"code": "LHR", "city": "London"}, {"code": "CDG", "city": "Paris"},
