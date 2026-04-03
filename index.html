@@ -862,6 +862,26 @@ select.field-input {
   font-weight: 500;
   margin-top: 4px;
 }
+.discover-avg {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+.deal-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--green-bg);
+  color: var(--green);
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.deal-badge.expensive {
+  background: var(--red-bg);
+  color: var(--red);
+}
 .discover-updated {
   font-size: 11px;
   color: var(--text-tertiary);
@@ -987,6 +1007,82 @@ select.field-input {
   .discover-price { font-size: 18px; }
   .discover-right { padding-right: 12px; }
 }
+
+/* ── Auth ── */
+.auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  position: relative;
+  z-index: 1;
+  background: rgba(255,255,255,.15);
+  border-radius: 30px;
+  display: inline-flex;
+  backdrop-filter: blur(4px);
+}
+.hero { display: flex; flex-direction: column; align-items: center; }
+.auth-bar a {
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 8px;
+  background: rgba(255,255,255,.2);
+  border-radius: 4px;
+}
+.auth-bar a:hover { background: rgba(255,255,255,.35); }
+
+.auth-card {
+  background: var(--surface);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+  padding: 32px;
+  max-width: 400px;
+  margin: 0 auto 24px;
+  animation: fadeInUp .35s ease both;
+}
+.auth-card h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+}
+.auth-card .auth-sub {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-bottom: 20px;
+}
+.auth-card .field { margin-bottom: 14px; }
+.auth-card .btn-primary { margin-top: 8px; }
+.auth-card .auth-switch {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+.auth-card .auth-switch a {
+  color: var(--primary);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.auth-card .auth-switch a:hover { text-decoration: underline; }
+.auth-card .auth-error {
+  background: var(--red-bg);
+  color: var(--red);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 14px;
+  display: none;
+}
 </style>
 </head>
 <body>
@@ -994,9 +1090,40 @@ select.field-input {
 <div class="hero">
   <h1><span>SkyFare</span></h1>
   <p>Search thousands of flights. Find the best price.</p>
+  <div class="auth-bar" id="auth-bar"></div>
 </div>
 
 <div class="page">
+  <!-- Auth card (shown when logged out, on alerts tab) -->
+  <div id="auth-card" style="display:none">
+    <div class="auth-card">
+      <h2 id="auth-title">Sign in</h2>
+      <p class="auth-sub" id="auth-sub">Sign in to create price alerts and track flights.</p>
+      <div class="auth-error" id="auth-error"></div>
+      <form id="auth-form" onsubmit="handleAuth(event)">
+        <div class="field" id="auth-name-field" style="display:none">
+          <span class="field-label">Name</span>
+          <input class="field-input" type="text" id="auth-name" placeholder="Your name">
+        </div>
+        <div class="field">
+          <span class="field-label">Email</span>
+          <input class="field-input" type="email" id="auth-email" placeholder="you@example.com" required>
+        </div>
+        <div class="field">
+          <span class="field-label">Password</span>
+          <input class="field-input" type="password" id="auth-password" placeholder="Min 6 characters" required>
+        </div>
+        <div class="field" id="auth-confirm-field" style="display:none">
+          <span class="field-label">Confirm password</span>
+          <input class="field-input" type="password" id="auth-confirm">
+        </div>
+        <button type="submit" class="btn-primary" id="auth-btn">Sign in</button>
+      </form>
+      <div class="auth-switch" id="auth-switch">
+        Don't have an account? <a onclick="toggleAuthMode()">Create one</a>
+      </div>
+    </div>
+  </div>
 
   <div class="card">
     <div class="tabs">
@@ -1250,6 +1377,105 @@ let alertArrAirports = new Set();
 let currentMode = 'flights';
 let lastDateResults = null;
 let dateViewMode = 'grid';
+let currentUser = null;
+let authMode = 'login'; // 'login' or 'register'
+
+function authFetch(url, opts = {}) {
+  const token = localStorage.getItem('skyfare_token');
+  if (token) {
+    opts.headers = { ...(opts.headers || {}), 'Authorization': 'Bearer ' + token };
+  }
+  return fetch(url, opts);
+}
+
+async function checkAuth() {
+  const token = localStorage.getItem('skyfare_token');
+  if (!token) { currentUser = null; renderAuthBar(); return; }
+  try {
+    const r = await authFetch('api/me');
+    if (r.ok) {
+      currentUser = await r.json();
+    } else {
+      localStorage.removeItem('skyfare_token');
+      currentUser = null;
+    }
+  } catch { currentUser = null; }
+  renderAuthBar();
+}
+
+function renderAuthBar() {
+  const bar = document.getElementById('auth-bar');
+  if (currentUser) {
+    bar.innerHTML = `${currentUser.email} &middot; <a onclick="logout()">Sign out</a>`;
+  } else {
+    bar.innerHTML = `<a onclick="showAuth()">Sign in</a> to create price alerts`;
+  }
+}
+
+function showAuth() {
+  setMode('alerts');
+}
+
+function logout() {
+  localStorage.removeItem('skyfare_token');
+  currentUser = null;
+  renderAuthBar();
+  if (currentMode === 'alerts') setMode('alerts');
+}
+
+function toggleAuthMode() {
+  authMode = authMode === 'login' ? 'register' : 'login';
+  document.getElementById('auth-title').textContent = authMode === 'login' ? 'Sign in' : 'Create account';
+  document.getElementById('auth-sub').textContent = authMode === 'login'
+    ? 'Sign in to create price alerts and track flights.'
+    : 'Create an account to set up personalized price alerts.';
+  document.getElementById('auth-confirm-field').style.display = authMode === 'register' ? '' : 'none';
+  document.getElementById('auth-btn').textContent = authMode === 'login' ? 'Sign in' : 'Create account';
+  document.getElementById('auth-switch').innerHTML = authMode === 'login'
+    ? 'Don\'t have an account? <a onclick="toggleAuthMode()">Create one</a>'
+    : 'Already have an account? <a onclick="toggleAuthMode()">Sign in</a>';
+  document.getElementById('auth-error').style.display = 'none';
+}
+
+async function handleAuth(e) {
+  e.preventDefault();
+  const btn = document.getElementById('auth-btn');
+  const errEl = document.getElementById('auth-error');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+
+  if (authMode === 'register') {
+    const confirm = document.getElementById('auth-confirm').value;
+    if (password !== confirm) {
+      errEl.textContent = 'Passwords do not match';
+      errEl.style.display = '';
+      btn.disabled = false;
+      return;
+    }
+  }
+
+  try {
+    const endpoint = authMode === 'login' ? 'api/login' : 'api/register';
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'Authentication failed');
+    localStorage.setItem('skyfare_token', data.token);
+    currentUser = data.user;
+    renderAuthBar();
+    document.getElementById('auth-form').reset();
+    setMode('alerts');
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = '';
+  } finally { btn.disabled = false; }
+}
 
 (async function init() {
   const today = new Date().toISOString().split('T')[0];
@@ -1287,6 +1513,7 @@ let dateViewMode = 'grid';
   setupAirlineAC();
   setupAlertDepAC();
   setupAlertArrAC();
+  await checkAuth();
   renderRecent();
   loadFromHash();
 })();
@@ -1296,12 +1523,17 @@ function setMode(mode) {
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   document.getElementById('flights-form').style.display = mode === 'flights' ? '' : 'none';
   document.getElementById('dates-form').style.display = mode === 'dates' ? '' : 'none';
-  document.getElementById('alerts-form').style.display = mode === 'alerts' ? '' : 'none';
-  document.getElementById('alerts-list').style.display = mode === 'alerts' ? '' : 'none';
   document.getElementById('discover-form').style.display = mode === 'discover' ? '' : 'none';
   document.getElementById('discover-results').style.display = mode === 'discover' ? '' : 'none';
   document.getElementById('results').innerHTML = '';
-  if (mode === 'alerts') loadAlerts();
+
+  // Auth gating for alerts
+  const needsAuth = mode === 'alerts' && !currentUser;
+  document.getElementById('auth-card').style.display = needsAuth ? '' : 'none';
+  document.getElementById('alerts-form').style.display = (mode === 'alerts' && currentUser) ? '' : 'none';
+  document.getElementById('alerts-list').style.display = (mode === 'alerts' && currentUser) ? '' : 'none';
+
+  if (mode === 'alerts' && currentUser) loadAlerts();
   if (mode === 'discover') {
     const saved = localStorage.getItem('skyfare_home_airport');
     if (saved) { document.getElementById('home-airport').value = saved; loadDiscover(); }
@@ -1841,7 +2073,7 @@ function renderAlertArrTags() {
 async function loadAlerts() {
   const div = document.getElementById('alerts-list');
   try {
-    const alerts = await fetch('api/alerts').then(r => r.json());
+    const alerts = await authFetch('api/alerts').then(r => r.json());
     if (!alerts.length) { div.innerHTML = '<div class="empty-state">No price alerts yet. Create one above.</div>'; return; }
     div.innerHTML = alerts.map(a => {
       const priceText = a.current_price != null ? `$${a.current_price.toFixed(0)}` : '—';
@@ -1877,7 +2109,7 @@ async function createAlert(e) {
   try {
     if (!alertDepAirports.size) throw new Error('Add at least one departure airport');
     if (!alertArrAirports.size) throw new Error('Add at least one arrival airport');
-    const res = await fetch('api/alerts', {
+    const res = await authFetch('api/alerts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1902,16 +2134,26 @@ async function createAlert(e) {
 }
 
 async function deleteAlert(id) {
-  await fetch(`api/alerts/${id}`, { method: 'DELETE' });
+  await authFetch(`api/alerts/${id}`, { method: 'DELETE' });
   loadAlerts();
 }
 
 async function reactivateAlert(id) {
-  await fetch(`api/alerts/${id}/reactivate`, { method: 'POST' });
+  await authFetch(`api/alerts/${id}/reactivate`, { method: 'POST' });
   loadAlerts();
 }
 
 // ── Discover ──
+function searchFromDiscover(dep, arr, date) {
+  setMode('flights');
+  document.getElementById('dep-airport').value = dep;
+  document.getElementById('arr-airport').value = arr;
+  document.getElementById('dep-date').value = date;
+  const oneWay = document.querySelector('input[name=trip_type][value="one_way"]');
+  if (oneWay) { oneWay.checked = true; toggleReturn(); }
+  document.getElementById('flights-form').requestSubmit();
+}
+
 async function findDeals() {
   const code = extractCode(document.getElementById('home-airport').value);
   if (!code) return;
@@ -1925,11 +2167,15 @@ async function loadDiscover() {
   const div = document.getElementById('discover-results');
   div.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading deals...</p></div>';
   try {
-    const data = await fetch(`api/discover?dep=${code}`).then(r => r.json());
+    let data = await fetch(`api/discover?dep=${code}`).then(r => r.json());
     if (!data.results || !data.results.length) {
       div.innerHTML = '<div class="loading"><div class="spinner"></div><p>Searching destinations — this may take a minute...</p></div>';
-      setTimeout(() => loadDiscover(), 5000);
-      return;
+      // Force sync refresh instead of waiting for background task
+      data = await fetch(`api/discover/refresh?dep=${code}`, { method: 'POST' }).then(r => r.json());
+      if (!data.results || !data.results.length) {
+        div.innerHTML = '<div class="empty-state">No deals found. Try a different airport.</div>';
+        return;
+      }
     }
     const prices = data.results.map(r => r.price);
     const minP = Math.min(...prices), maxP = Math.max(...prices);
@@ -1945,15 +2191,22 @@ async function loadDiscover() {
       const img = r.image
         ? `<img class="discover-img" src="${r.image}" alt="${r.city}" loading="lazy">`
         : `<div class="discover-img-placeholder">${r.city.slice(0,2).toUpperCase()}</div>`;
-      return `<div class="discover-row" style="animation-delay:${i * 50}ms">
+      const pct = r.pct_diff || 0;
+      const dealBadge = pct < -5
+        ? `<span class="deal-badge">${Math.abs(pct)}% cheaper</span>`
+        : pct > 5
+        ? `<span class="deal-badge expensive">${pct}% above avg</span>`
+        : '';
+      return `<div class="discover-row" style="animation-delay:${i * 50}ms;cursor:pointer" onclick="searchFromDiscover('${code}','${r.code}','${r.date}')">
         ${img}
         <div class="discover-info">
-          <div class="discover-city">${r.city}</div>
+          <div class="discover-city">${r.city} ${dealBadge}</div>
           <div class="discover-code">${r.code}</div>
         </div>
         <div class="discover-right">
           <div class="discover-price" style="color:hsl(${hue},70%,35%)">$${r.price.toFixed(0)}</div>
           <div class="discover-date">${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}</div>
+          ${r.avg_price ? `<div class="discover-avg">avg $${r.avg_price.toFixed(0)}</div>` : ''}
         </div>
       </div>`;
     }).join('')}</div>`;

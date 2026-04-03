@@ -1,18 +1,22 @@
 import asyncio
 import csv
+import hashlib
 import io
 import json
 import logging
 import os
+import secrets
 import smtplib
+import sqlite3
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+import jwt
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -42,6 +46,93 @@ from fli.models import (
 from fli.search import SearchDates, SearchFlights
 
 app = FastAPI()
+
+# --- Database ---
+
+DB_PATH = Path(__file__).parent / "skyfare.db"
+
+
+def get_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def init_db():
+    conn = get_db()
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            home_airports TEXT DEFAULT '[]',
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS price_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dep_code TEXT NOT NULL,
+            arr_code TEXT NOT NULL,
+            price REAL NOT NULL,
+            checked_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ph_route ON price_history(dep_code, arr_code);
+        CREATE TABLE IF NOT EXISTS alerts (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            departure_airports TEXT NOT NULL,
+            arrival_airports TEXT NOT NULL,
+            target_price REAL NOT NULL,
+            seat_type TEXT DEFAULT 'economy',
+            max_stops TEXT DEFAULT 'any',
+            created_at TEXT NOT NULL,
+            last_checked TEXT,
+            current_price REAL,
+            triggered INTEGER DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+# --- Auth helpers ---
+
+JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_hex(32))
+JWT_EXPIRY_DAYS = 30
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+    return f"{salt}:{h.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    salt, h = stored.split(":")
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex() == h
+
+
+def create_token(user_id: int, email: str) -> str:
+    return jwt.encode(
+        {"uid": user_id, "email": email, "exp": datetime.now(timezone.utc) + timedelta(days=JWT_EXPIRY_DAYS)},
+        JWT_SECRET,
+        algorithm="HS256",
+    )
+
+
+def get_current_user(request: Request) -> dict:
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return {"id": payload["uid"], "email": payload["email"]}
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
 
 # Pre-compute airport and airline lists once
 AIRPORTS = [{"code": a.name, "name": a.value} for a in Airport]
@@ -171,6 +262,80 @@ async def airlines():
 @app.get("/api/countries")
 async def countries():
     return COUNTRIES
+
+
+# --- Auth endpoints ---
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class UpdateProfileRequest(BaseModel):
+    home_airports: list[str] = []
+
+
+@app.post("/api/register")
+async def register(req: RegisterRequest):
+    email = req.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email")
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
+            (email, hash_password(req.password), datetime.now().isoformat(timespec="seconds")),
+        )
+        conn.commit()
+        user_id = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()["id"]
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    finally:
+        conn.close()
+    return {"token": create_token(user_id, email), "user": {"id": user_id, "email": email, "home_airports": []}}
+
+
+@app.post("/api/login")
+async def login(req: LoginRequest):
+    email = req.email.strip().lower()
+    conn = get_db()
+    row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    conn.close()
+    if not row or not verify_password(req.password, row["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return {
+        "token": create_token(row["id"], email),
+        "user": {"id": row["id"], "email": email, "home_airports": json.loads(row["home_airports"])},
+    }
+
+
+@app.get("/api/me")
+async def get_me(request: Request):
+    user = get_current_user(request)
+    conn = get_db()
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"id": row["id"], "email": row["email"], "home_airports": json.loads(row["home_airports"])}
+
+
+@app.put("/api/me")
+async def update_me(req: UpdateProfileRequest, request: Request):
+    user = get_current_user(request)
+    conn = get_db()
+    conn.execute("UPDATE users SET home_airports = ? WHERE id = ?", (json.dumps(req.home_airports), user["id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 
 class FlightSearchRequest(BaseModel):
@@ -376,23 +541,23 @@ def _load_city_images():
 
 _load_city_images()
 
-ALERTS_FILE = Path(__file__).parent / "alerts.json"
 GMAIL_USER = os.getenv("GMAIL_USER", "")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
-ALERT_RECIPIENT = os.getenv("ALERT_RECIPIENT", "") or GMAIL_USER
 
 
-def load_alerts() -> list[dict]:
-    if not ALERTS_FILE.exists():
-        return []
-    try:
-        return json.loads(ALERTS_FILE.read_text())
-    except (json.JSONDecodeError, OSError):
-        return []
-
-
-def save_alerts(alerts: list[dict]):
-    ALERTS_FILE.write_text(json.dumps(alerts, indent=2))
+def _row_to_alert(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "departure_airports": json.loads(row["departure_airports"]),
+        "arrival_airports": json.loads(row["arrival_airports"]),
+        "target_price": row["target_price"],
+        "seat_type": row["seat_type"],
+        "max_stops": row["max_stops"],
+        "created_at": row["created_at"],
+        "last_checked": row["last_checked"],
+        "current_price": row["current_price"],
+        "triggered": bool(row["triggered"]),
+    }
 
 
 class AlertRequest(BaseModel):
@@ -403,95 +568,72 @@ class AlertRequest(BaseModel):
     max_stops: str = "any"
 
 
-def _migrate_alert(alert: dict) -> dict:
-    """Migrate old single-airport alerts to new format."""
-    if "departure_airport" in alert and "departure_airports" not in alert:
-        alert["departure_airports"] = [alert.pop("departure_airport")]
-        alert["arrival_country"] = "Unknown"
-        alert["arrival_airports"] = [alert.pop("arrival_airport")]
-    return alert
-
-
 @app.get("/api/alerts")
-async def get_alerts():
-    alerts = load_alerts()
-    return [_migrate_alert(a) for a in alerts]
+async def get_alerts(request: Request):
+    user = get_current_user(request)
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM alerts WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)).fetchall()
+    conn.close()
+    return [_row_to_alert(r) for r in rows]
 
 
 @app.post("/api/alerts")
-async def create_alert(req: AlertRequest):
-    # Validate departure airports
-    dep_codes = []
-    for code in req.departure_airports:
-        c = code.upper()
-        if getattr(Airport, c, None) is None:
-            raise HTTPException(status_code=400, detail=f"Unknown departure airport: {c}")
-        dep_codes.append(c)
+async def create_alert(req: AlertRequest, request: Request):
+    user = get_current_user(request)
+    dep_codes = [c.upper() for c in req.departure_airports if getattr(Airport, c.upper(), None)]
+    arr_codes = [c.upper() for c in req.arrival_airports if getattr(Airport, c.upper(), None)]
     if not dep_codes:
-        raise HTTPException(status_code=400, detail="At least one departure airport required")
-
-    # Validate arrival airports
-    arr_codes = []
-    for code in req.arrival_airports:
-        c = code.upper()
-        if getattr(Airport, c, None) is None:
-            raise HTTPException(status_code=400, detail=f"Unknown arrival airport: {c}")
-        arr_codes.append(c)
+        raise HTTPException(status_code=400, detail="At least one valid departure airport required")
     if not arr_codes:
-        raise HTTPException(status_code=400, detail="At least one arrival airport required")
+        raise HTTPException(status_code=400, detail="At least one valid arrival airport required")
 
-    alert = {
-        "id": uuid.uuid4().hex[:8],
-        "departure_airports": dep_codes,
-        "arrival_airports": arr_codes,
-        "target_price": req.target_price,
-        "seat_type": req.seat_type,
-        "max_stops": req.max_stops,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
-        "last_checked": None,
-        "current_price": None,
-        "triggered": False,
-    }
-    alerts = load_alerts()
-    alerts.append(alert)
-    save_alerts(alerts)
-    return alert
+    alert_id = uuid.uuid4().hex[:8]
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO alerts (id, user_id, departure_airports, arrival_airports, target_price, seat_type, max_stops, created_at) VALUES (?,?,?,?,?,?,?,?)",
+        (alert_id, user["id"], json.dumps(dep_codes), json.dumps(arr_codes), req.target_price, req.seat_type, req.max_stops, now),
+    )
+    conn.commit()
+    conn.close()
+    return {"id": alert_id, "departure_airports": dep_codes, "arrival_airports": arr_codes, "target_price": req.target_price, "seat_type": req.seat_type, "max_stops": req.max_stops, "created_at": now, "last_checked": None, "current_price": None, "triggered": False}
 
 
 @app.delete("/api/alerts/{alert_id}")
-async def delete_alert(alert_id: str):
-    alerts = load_alerts()
-    alerts = [a for a in alerts if a["id"] != alert_id]
-    save_alerts(alerts)
+async def delete_alert(alert_id: str, request: Request):
+    user = get_current_user(request)
+    conn = get_db()
+    conn.execute("DELETE FROM alerts WHERE id = ? AND user_id = ?", (alert_id, user["id"]))
+    conn.commit()
+    conn.close()
     return {"ok": True}
 
 
 @app.post("/api/alerts/{alert_id}/reactivate")
-async def reactivate_alert(alert_id: str):
-    alerts = load_alerts()
-    for a in alerts:
-        if a["id"] == alert_id:
-            a["triggered"] = False
-            break
-    save_alerts(alerts)
+async def reactivate_alert(alert_id: str, request: Request):
+    user = get_current_user(request)
+    conn = get_db()
+    conn.execute("UPDATE alerts SET triggered = 0 WHERE id = ? AND user_id = ?", (alert_id, user["id"]))
+    conn.commit()
+    conn.close()
     return {"ok": True}
 
 
-def send_price_alert_email(alert: dict, cheapest_price: float, cheapest_date: str):
+def send_price_alert_email(email: str, dep_airports: list, arr_airports: list, target_price: float, cheapest_price: float, cheapest_date: str):
     if not GMAIL_USER or not GMAIL_APP_PASSWORD:
         log.warning("Gmail credentials not configured, skipping email")
         return
 
-    alert = _migrate_alert(alert)
-    dep_str = ", ".join(alert["departure_airports"])
-    route = f"{dep_str} → {alert.get('arrival_country', 'Unknown')}"
-    subject = f"Price Alert: {route} dropped to ${cheapest_price:.0f}!"
+    dep_str = ", ".join(dep_airports)
+    arr_str = ", ".join(arr_airports[:5])
+    route = f"{dep_str} → {arr_str}"
+    subject = f"SkyFare: {dep_str} flights dropped to ${cheapest_price:.0f}!"
 
     html = f"""<div style="font-family:sans-serif;max-width:480px">
     <h2 style="color:#16a34a">Price dropped!</h2>
     <p style="font-size:16px"><strong>{route}</strong></p>
     <p>Cheapest price found: <strong style="font-size:20px;color:#16a34a">${cheapest_price:.0f}</strong></p>
-    <p>Your target was: ${alert['target_price']:.0f}</p>
+    <p>Your target was: ${target_price:.0f}</p>
     <p>Date: {cheapest_date}</p>
     <p style="color:#666;font-size:13px;margin-top:24px">— SkyFare Price Alerts</p>
     </div>"""
@@ -499,56 +641,44 @@ def send_price_alert_email(alert: dict, cheapest_price: float, cheapest_date: st
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = GMAIL_USER
-    msg["To"] = ALERT_RECIPIENT
-    msg.attach(MIMEText(f"{route}: ${cheapest_price:.0f} on {cheapest_date} (target: ${alert['target_price']:.0f})", "plain"))
+    msg["To"] = email
+    msg.attach(MIMEText(f"{route}: ${cheapest_price:.0f} on {cheapest_date} (target: ${target_price:.0f})", "plain"))
     msg.attach(MIMEText(html, "html"))
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
             s.login(GMAIL_USER, GMAIL_APP_PASSWORD)
             s.send_message(msg)
-        log.info(f"Alert email sent for {route}")
+        log.info(f"Alert email sent to {email} for {route}")
     except Exception as e:
         log.error(f"Failed to send alert email: {e}")
 
 
 async def check_alerts():
-    alerts = load_alerts()
-    changed = False
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT a.*, u.email FROM alerts a JOIN users u ON a.user_id = u.id WHERE a.triggered = 0"
+    ).fetchall()
+    conn.close()
+
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     end_date = (datetime.now() + timedelta(days=60)).strftime("%Y-%m-%d")
 
-    for alert in alerts:
-        _migrate_alert(alert)
-        if alert.get("triggered"):
-            continue
+    for row in rows:
         try:
-            dep_list = [
-                [getattr(Airport, c), 0]
-                for c in alert["departure_airports"]
-                if getattr(Airport, c, None) is not None
-            ]
-            arr_list = [
-                [getattr(Airport, c), 0]
-                for c in alert["arrival_airports"]
-                if getattr(Airport, c, None) is not None
-            ]
+            dep_codes = json.loads(row["departure_airports"])
+            arr_codes = json.loads(row["arrival_airports"])
+            dep_list = [[getattr(Airport, c), 0] for c in dep_codes if getattr(Airport, c, None)]
+            arr_list = [[getattr(Airport, c), 0] for c in arr_codes if getattr(Airport, c, None)]
             if not dep_list or not arr_list:
-                log.warning(f"Alert {alert['id']}: no valid airports, skipping")
                 continue
 
             filters = DateSearchFilters(
                 trip_type=TripType.ONE_WAY,
                 passenger_info=PassengerInfo(adults=1),
-                flight_segments=[
-                    FlightSegment(
-                        departure_airport=dep_list,
-                        arrival_airport=arr_list,
-                        travel_date=tomorrow,
-                    )
-                ],
-                seat_type=SEAT_TYPE_MAP.get(alert.get("seat_type", "economy"), SeatType.ECONOMY),
-                stops=STOPS_MAP.get(alert.get("max_stops", "any"), MaxStops.ANY),
+                flight_segments=[FlightSegment(departure_airport=dep_list, arrival_airport=arr_list, travel_date=tomorrow)],
+                seat_type=SEAT_TYPE_MAP.get(row["seat_type"], SeatType.ECONOMY),
+                stops=STOPS_MAP.get(row["max_stops"], MaxStops.ANY),
                 from_date=tomorrow,
                 to_date=end_date,
             )
@@ -556,38 +686,38 @@ async def check_alerts():
             search = SearchDates()
             results = await asyncio.to_thread(search.search, filters)
 
-            alert["last_checked"] = datetime.now().isoformat(timespec="seconds")
-            changed = True
-
+            conn = get_db()
             if results:
                 results.sort(key=lambda r: r.price)
                 cheapest = results[0]
-                alert["current_price"] = cheapest.price
                 cheapest_date = cheapest.date[0].strftime("%Y-%m-%d")
 
-                if cheapest.price <= alert["target_price"]:
-                    alert["triggered"] = True
-                    send_price_alert_email(alert, cheapest.price, cheapest_date)
-                    dep_str = ",".join(alert["departure_airports"])
-                    log.info(f"Alert triggered: {dep_str}->{alert.get('arrival_country')} ${cheapest.price:.0f}")
+                if cheapest.price <= row["target_price"]:
+                    conn.execute("UPDATE alerts SET last_checked=?, current_price=?, triggered=1 WHERE id=?",
+                                 (datetime.now().isoformat(timespec="seconds"), cheapest.price, row["id"]))
+                    send_price_alert_email(row["email"], dep_codes, arr_codes, row["target_price"], cheapest.price, cheapest_date)
+                    log.info(f"Alert triggered: {row['id']} ${cheapest.price:.0f}")
+                else:
+                    conn.execute("UPDATE alerts SET last_checked=?, current_price=? WHERE id=?",
+                                 (datetime.now().isoformat(timespec="seconds"), cheapest.price, row["id"]))
             else:
-                log.info(f"No results for alert {alert['id']}")
+                conn.execute("UPDATE alerts SET last_checked=? WHERE id=?",
+                             (datetime.now().isoformat(timespec="seconds"), row["id"]))
+            conn.commit()
+            conn.close()
 
         except Exception as e:
-            log.error(f"Error checking alert {alert['id']}: {e}")
-
-    if changed:
-        save_alerts(alerts)
+            log.error(f"Error checking alert {row['id']}: {e}")
 
 
 async def alert_loop():
-    await asyncio.sleep(10)  # initial delay to let server start
+    await asyncio.sleep(10)
     while True:
         try:
             await check_alerts()
         except Exception as e:
             log.error(f"Alert loop error: {e}")
-        await asyncio.sleep(7200)  # check every 2 hours
+        await asyncio.sleep(7200)
 
 
 # --- Discover deals ---
@@ -651,6 +781,28 @@ async def refresh_deals(dep_code: str):
                 log.info(f"Discover {dep_code}->{dest['code']}: ${cheapest.price:.0f}")
         except Exception as e:
             log.error(f"Discover error {dep_code}->{dest['code']}: {e}")
+
+    # Save to price history and compute averages
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_db()
+    for r in results_list:
+        conn.execute(
+            "INSERT INTO price_history (dep_code, arr_code, price, checked_at) VALUES (?,?,?,?)",
+            (dep_code.upper(), r["code"], r["price"], now),
+        )
+    conn.commit()
+
+    # Compute avg from last 30 days of history
+    cutoff = (datetime.now() - timedelta(days=30)).isoformat()
+    for r in results_list:
+        row = conn.execute(
+            "SELECT AVG(price) as avg_price, COUNT(*) as cnt FROM price_history WHERE dep_code=? AND arr_code=? AND checked_at>?",
+            (dep_code.upper(), r["code"], cutoff),
+        ).fetchone()
+        avg = row["avg_price"] if row and row["avg_price"] else r["price"]
+        r["avg_price"] = round(avg, 2)
+        r["pct_diff"] = round((r["price"] - avg) / avg * 100) if avg > 0 else 0
+    conn.close()
 
     results_list.sort(key=lambda x: x["price"])
     deals = load_deals()

@@ -4,3 +4,4 @@ __pycache__/
 alerts.json
 deals.json
 countries.json
+skyfare.db
