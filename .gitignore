@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+.env
+alerts.json
+deals.json
+countries.json

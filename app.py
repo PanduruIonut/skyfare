@@ -1,9 +1,12 @@
 import asyncio
+import csv
+import io
 import json
 import logging
 import os
 import smtplib
 import uuid
+from collections import defaultdict
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -43,6 +46,56 @@ app = FastAPI()
 # Pre-compute airport and airline lists once
 AIRPORTS = [{"code": a.name, "name": a.value} for a in Airport]
 AIRLINES = [{"code": a.name, "name": a.value} for a in Airline]
+
+# Build country → airport mapping from OpenFlights data
+AIRPORT_CODES = {a.name for a in Airport}
+COUNTRY_AIRPORTS: dict[str, list[str]] = {}
+COUNTRIES: list[dict] = []
+
+
+def _build_country_mapping():
+    data_file = Path(__file__).parent / "countries.json"
+    # Try loading cached data first
+    if data_file.exists():
+        try:
+            mapping = json.loads(data_file.read_text())
+            COUNTRY_AIRPORTS.update(mapping)
+            COUNTRIES.extend(
+                sorted([{"name": c} for c in mapping], key=lambda x: x["name"])
+            )
+            return
+        except Exception:
+            pass
+
+    # Download from OpenFlights
+    try:
+        import httpx
+
+        resp = httpx.get(
+            "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat",
+            timeout=15,
+        )
+        resp.raise_for_status()
+        mapping: dict[str, list[str]] = defaultdict(list)
+        reader = csv.reader(io.StringIO(resp.text))
+        for row in reader:
+            if len(row) >= 5 and row[4] and row[4] != "\\N":
+                iata = row[4].strip()
+                country = row[3].strip()
+                if iata in AIRPORT_CODES and country:
+                    if iata not in mapping[country]:
+                        mapping[country].append(iata)
+        COUNTRY_AIRPORTS.update(mapping)
+        COUNTRIES.extend(
+            sorted([{"name": c} for c in mapping], key=lambda x: x["name"])
+        )
+        # Cache for next startup
+        data_file.write_text(json.dumps(dict(mapping), indent=2))
+    except Exception as e:
+        log.warning(f"Failed to load country data: {e}")
+
+
+_build_country_mapping()
 
 SEAT_TYPE_MAP = {
     "economy": SeatType.ECONOMY,
@@ -113,6 +166,11 @@ async def airports():
 @app.get("/api/airlines")
 async def airlines():
     return AIRLINES
+
+
+@app.get("/api/countries")
+async def countries():
+    return COUNTRIES
 
 
 class FlightSearchRequest(BaseModel):
@@ -262,9 +320,66 @@ async def search_dates(req: DateSearchRequest):
 
 # --- Alerts ---
 
+DEALS_FILE = Path(__file__).parent / "deals.json"
+CITY_IMAGES_FILE = Path(__file__).parent / "city_images.json"
+DISCOVER_DESTINATIONS = [
+    {"code": "LHR", "city": "London"}, {"code": "CDG", "city": "Paris"},
+    {"code": "BCN", "city": "Barcelona"}, {"code": "FCO", "city": "Rome"},
+    {"code": "AMS", "city": "Amsterdam"}, {"code": "BER", "city": "Berlin"},
+    {"code": "VIE", "city": "Vienna"}, {"code": "PRG", "city": "Prague"},
+    {"code": "ATH", "city": "Athens"}, {"code": "IST", "city": "Istanbul"},
+    {"code": "DUB", "city": "Dublin"}, {"code": "LIS", "city": "Lisbon"},
+    {"code": "CPH", "city": "Copenhagen"}, {"code": "ZRH", "city": "Zurich"},
+    {"code": "BUD", "city": "Budapest"}, {"code": "WAW", "city": "Warsaw"},
+    {"code": "MAD", "city": "Madrid"}, {"code": "MXP", "city": "Milan"},
+    {"code": "JFK", "city": "New York"}, {"code": "LAX", "city": "Los Angeles"},
+    {"code": "BKK", "city": "Bangkok"}, {"code": "NRT", "city": "Tokyo"},
+    {"code": "DXB", "city": "Dubai"}, {"code": "SIN", "city": "Singapore"},
+]
+
+CITY_IMAGES: dict[str, str] = {}
+
+
+def _load_city_images():
+    if CITY_IMAGES_FILE.exists():
+        try:
+            CITY_IMAGES.update(json.loads(CITY_IMAGES_FILE.read_text()))
+            return
+        except Exception:
+            pass
+    try:
+        import httpx
+
+        for dest in DISCOVER_DESTINATIONS:
+            city = dest["city"]
+            if city in CITY_IMAGES:
+                continue
+            try:
+                resp = httpx.get(
+                    f"https://en.wikipedia.org/api/rest_v1/page/summary/{city}",
+                    timeout=10,
+                    follow_redirects=True,
+                    headers={"User-Agent": "SkyFare/1.0 (flight search app)"},
+                )
+                data = resp.json()
+                thumb = data.get("thumbnail", {}).get("source", "")
+                if thumb:
+                    # Request wider version
+                    thumb = thumb.replace("/50px-", "/400px-")
+                    CITY_IMAGES[city] = thumb
+            except Exception:
+                pass
+        CITY_IMAGES_FILE.write_text(json.dumps(CITY_IMAGES, indent=2))
+    except Exception as e:
+        log.warning(f"Failed to load city images: {e}")
+
+
+_load_city_images()
+
 ALERTS_FILE = Path(__file__).parent / "alerts.json"
 GMAIL_USER = os.getenv("GMAIL_USER", "")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
+ALERT_RECIPIENT = os.getenv("ALERT_RECIPIENT", "") or GMAIL_USER
 
 
 def load_alerts() -> list[dict]:
@@ -281,26 +396,54 @@ def save_alerts(alerts: list[dict]):
 
 
 class AlertRequest(BaseModel):
-    departure_airport: str
-    arrival_airport: str
+    departure_airports: list[str]
+    arrival_airports: list[str]
     target_price: float
     seat_type: str = "economy"
     max_stops: str = "any"
 
 
+def _migrate_alert(alert: dict) -> dict:
+    """Migrate old single-airport alerts to new format."""
+    if "departure_airport" in alert and "departure_airports" not in alert:
+        alert["departure_airports"] = [alert.pop("departure_airport")]
+        alert["arrival_country"] = "Unknown"
+        alert["arrival_airports"] = [alert.pop("arrival_airport")]
+    return alert
+
+
 @app.get("/api/alerts")
 async def get_alerts():
-    return load_alerts()
+    alerts = load_alerts()
+    return [_migrate_alert(a) for a in alerts]
 
 
 @app.post("/api/alerts")
 async def create_alert(req: AlertRequest):
-    get_airport(req.departure_airport)
-    get_airport(req.arrival_airport)
+    # Validate departure airports
+    dep_codes = []
+    for code in req.departure_airports:
+        c = code.upper()
+        if getattr(Airport, c, None) is None:
+            raise HTTPException(status_code=400, detail=f"Unknown departure airport: {c}")
+        dep_codes.append(c)
+    if not dep_codes:
+        raise HTTPException(status_code=400, detail="At least one departure airport required")
+
+    # Validate arrival airports
+    arr_codes = []
+    for code in req.arrival_airports:
+        c = code.upper()
+        if getattr(Airport, c, None) is None:
+            raise HTTPException(status_code=400, detail=f"Unknown arrival airport: {c}")
+        arr_codes.append(c)
+    if not arr_codes:
+        raise HTTPException(status_code=400, detail="At least one arrival airport required")
+
     alert = {
         "id": uuid.uuid4().hex[:8],
-        "departure_airport": req.departure_airport.upper(),
-        "arrival_airport": req.arrival_airport.upper(),
+        "departure_airports": dep_codes,
+        "arrival_airports": arr_codes,
         "target_price": req.target_price,
         "seat_type": req.seat_type,
         "max_stops": req.max_stops,
@@ -339,7 +482,9 @@ def send_price_alert_email(alert: dict, cheapest_price: float, cheapest_date: st
         log.warning("Gmail credentials not configured, skipping email")
         return
 
-    route = f"{alert['departure_airport']} → {alert['arrival_airport']}"
+    alert = _migrate_alert(alert)
+    dep_str = ", ".join(alert["departure_airports"])
+    route = f"{dep_str} → {alert.get('arrival_country', 'Unknown')}"
     subject = f"Price Alert: {route} dropped to ${cheapest_price:.0f}!"
 
     html = f"""<div style="font-family:sans-serif;max-width:480px">
@@ -354,7 +499,7 @@ def send_price_alert_email(alert: dict, cheapest_price: float, cheapest_date: st
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = GMAIL_USER
-    msg["To"] = GMAIL_USER
+    msg["To"] = ALERT_RECIPIENT
     msg.attach(MIMEText(f"{route}: ${cheapest_price:.0f} on {cheapest_date} (target: ${alert['target_price']:.0f})", "plain"))
     msg.attach(MIMEText(html, "html"))
 
@@ -374,19 +519,31 @@ async def check_alerts():
     end_date = (datetime.now() + timedelta(days=60)).strftime("%Y-%m-%d")
 
     for alert in alerts:
+        _migrate_alert(alert)
         if alert.get("triggered"):
             continue
         try:
-            dep = getattr(Airport, alert["departure_airport"])
-            arr = getattr(Airport, alert["arrival_airport"])
+            dep_list = [
+                [getattr(Airport, c), 0]
+                for c in alert["departure_airports"]
+                if getattr(Airport, c, None) is not None
+            ]
+            arr_list = [
+                [getattr(Airport, c), 0]
+                for c in alert["arrival_airports"]
+                if getattr(Airport, c, None) is not None
+            ]
+            if not dep_list or not arr_list:
+                log.warning(f"Alert {alert['id']}: no valid airports, skipping")
+                continue
 
             filters = DateSearchFilters(
                 trip_type=TripType.ONE_WAY,
                 passenger_info=PassengerInfo(adults=1),
                 flight_segments=[
                     FlightSegment(
-                        departure_airport=[[dep, 0]],
-                        arrival_airport=[[arr, 0]],
+                        departure_airport=dep_list,
+                        arrival_airport=arr_list,
                         travel_date=tomorrow,
                     )
                 ],
@@ -411,7 +568,8 @@ async def check_alerts():
                 if cheapest.price <= alert["target_price"]:
                     alert["triggered"] = True
                     send_price_alert_email(alert, cheapest.price, cheapest_date)
-                    log.info(f"Alert triggered: {alert['departure_airport']}->{alert['arrival_airport']} ${cheapest.price:.0f}")
+                    dep_str = ",".join(alert["departure_airports"])
+                    log.info(f"Alert triggered: {dep_str}->{alert.get('arrival_country')} ${cheapest.price:.0f}")
             else:
                 log.info(f"No results for alert {alert['id']}")
 
@@ -432,9 +590,120 @@ async def alert_loop():
         await asyncio.sleep(7200)  # check every 2 hours
 
 
+# --- Discover deals ---
+
+
+def load_deals() -> dict:
+    if not DEALS_FILE.exists():
+        return {}
+    try:
+        return json.loads(DEALS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_deals(deals: dict):
+    DEALS_FILE.write_text(json.dumps(deals, indent=2))
+
+
+async def refresh_deals(dep_code: str):
+    dep = getattr(Airport, dep_code.upper(), None)
+    if dep is None:
+        return
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    end_date = (datetime.now() + timedelta(days=60)).strftime("%Y-%m-%d")
+    results_list = []
+
+    for dest in DISCOVER_DESTINATIONS:
+        if dest["code"] == dep_code.upper():
+            continue
+        arr = getattr(Airport, dest["code"], None)
+        if arr is None:
+            continue
+        try:
+            filters = DateSearchFilters(
+                trip_type=TripType.ONE_WAY,
+                passenger_info=PassengerInfo(adults=1),
+                flight_segments=[
+                    FlightSegment(
+                        departure_airport=[[dep, 0]],
+                        arrival_airport=[[arr, 0]],
+                        travel_date=tomorrow,
+                    )
+                ],
+                seat_type=SeatType.ECONOMY,
+                stops=MaxStops.ANY,
+                from_date=tomorrow,
+                to_date=end_date,
+            )
+            search = SearchDates()
+            res = await asyncio.to_thread(search.search, filters)
+            if res:
+                res.sort(key=lambda r: r.price)
+                cheapest = res[0]
+                results_list.append({
+                    "code": dest["code"],
+                    "city": dest["city"],
+                    "price": cheapest.price,
+                    "date": cheapest.date[0].strftime("%Y-%m-%d"),
+                    "image": CITY_IMAGES.get(dest["city"], ""),
+                })
+                log.info(f"Discover {dep_code}->{dest['code']}: ${cheapest.price:.0f}")
+        except Exception as e:
+            log.error(f"Discover error {dep_code}->{dest['code']}: {e}")
+
+    results_list.sort(key=lambda x: x["price"])
+    deals = load_deals()
+    deals[dep_code.upper()] = {
+        "results": results_list,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    save_deals(deals)
+    log.info(f"Discover refresh done for {dep_code}: {len(results_list)} destinations")
+
+
+@app.get("/api/discover")
+async def get_discover(dep: str):
+    dep = dep.upper()
+    if getattr(Airport, dep, None) is None:
+        raise HTTPException(status_code=400, detail=f"Unknown airport: {dep}")
+    deals = load_deals()
+    entry = deals.get(dep)
+    if entry:
+        age = (datetime.now() - datetime.fromisoformat(entry["updated_at"])).total_seconds()
+        if age > 43200:  # stale after 12 hours
+            asyncio.create_task(refresh_deals(dep))
+        return entry
+    # No cache — trigger refresh in background
+    asyncio.create_task(refresh_deals(dep))
+    return {"results": [], "updated_at": None}
+
+
+@app.post("/api/discover/refresh")
+async def force_refresh_discover(dep: str):
+    dep = dep.upper()
+    if getattr(Airport, dep, None) is None:
+        raise HTTPException(status_code=400, detail=f"Unknown airport: {dep}")
+    await refresh_deals(dep)
+    return load_deals().get(dep, {"results": [], "updated_at": None})
+
+
+async def discover_loop():
+    await asyncio.sleep(30)
+    while True:
+        deals = load_deals()
+        for dep_code in list(deals.keys()):
+            try:
+                await refresh_deals(dep_code)
+            except Exception as e:
+                log.error(f"Discover loop error for {dep_code}: {e}")
+        await asyncio.sleep(43200)  # every 12 hours
+
+
 @app.on_event("startup")
-async def start_alert_loop():
+async def start_background_loops():
     asyncio.create_task(alert_loop())
+    asyncio.create_task(discover_loop())
 
 
 if __name__ == "__main__":

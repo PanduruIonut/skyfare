@@ -767,6 +767,121 @@ select.field-input {
   font-size: 15px;
 }
 
+/* ── Discover ── */
+/* ── Animations ── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.anim-in {
+  animation: fadeInUp .4s ease both;
+}
+.card { animation: fadeIn .3s ease both; }
+.flight-card { animation: fadeInUp .35s ease both; }
+.discover-row { animation: fadeInUp .35s ease both; }
+
+/* ── Discover rows ── */
+.discover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.discover-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+  transition: all .2s;
+  cursor: default;
+}
+.discover-row:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+.discover-img {
+  width: 110px;
+  height: 80px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--surface-tertiary);
+}
+.discover-img-placeholder {
+  width: 110px;
+  height: 80px;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 800;
+  color: rgba(255,255,255,.7);
+  letter-spacing: 1px;
+}
+.discover-info {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 0;
+}
+.discover-city {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+.discover-code {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  letter-spacing: .3px;
+  margin-top: 2px;
+}
+.discover-right {
+  text-align: right;
+  padding: 12px 18px 12px 0;
+  flex-shrink: 0;
+}
+.discover-price {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  line-height: 1;
+}
+.discover-date {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin-top: 4px;
+}
+.discover-updated {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+}
+.btn-refresh {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all .15s;
+  margin-left: 8px;
+}
+.btn-refresh:hover { border-color: var(--accent); color: var(--accent); }
+
 /* ── Alerts ── */
 .alert-card {
   background: var(--surface);
@@ -867,6 +982,10 @@ select.field-input {
   .calendar-cell { min-height: 48px; padding: 6px 2px; }
   .calendar-cell-price { font-size: 11px; }
   .result-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .discover-img, .discover-img-placeholder { width: 72px; height: 64px; }
+  .discover-city { font-size: 13px; }
+  .discover-price { font-size: 18px; }
+  .discover-right { padding-right: 12px; }
 }
 </style>
 </head>
@@ -884,6 +1003,7 @@ select.field-input {
       <button class="tab active" data-mode="flights" onclick="setMode('flights')">Flights</button>
       <button class="tab" data-mode="dates" onclick="setMode('dates')">Flexible dates</button>
       <button class="tab" data-mode="alerts" onclick="setMode('alerts')">Price alerts</button>
+      <button class="tab" data-mode="discover" onclick="setMode('discover')">Discover</button>
     </div>
 
     <!-- Flight search -->
@@ -1048,18 +1168,20 @@ select.field-input {
 
     <!-- Alerts -->
     <form id="alerts-form" style="display:none" onsubmit="createAlert(event)">
-      <div class="airport-fields">
-        <div class="field">
-          <span class="field-label">From</span>
-          <input class="field-input" type="text" id="dep-airport-a" placeholder="Airport or city" autocomplete="off" required>
+      <div class="form-row">
+        <div class="field span">
+          <span class="field-label">Departure airports</span>
+          <div class="airline-tags" id="alert-dep-tags"></div>
+          <input class="field-input" type="text" id="dep-airport-a" placeholder="Add airports (e.g. OTP, BUD, VIE)" autocomplete="off">
           <div class="ac-list" id="dep-ac-a"></div>
         </div>
-        <button type="button" class="swap-btn" onclick="swapAirports('a')" title="Swap">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4M17 8v12m0 0 4-4m-4 4-4-4"/></svg>
-        </button>
-        <div class="field">
-          <span class="field-label">To</span>
-          <input class="field-input" type="text" id="arr-airport-a" placeholder="Airport or city" autocomplete="off" required>
+      </div>
+
+      <div class="form-row">
+        <div class="field span">
+          <span class="field-label">Arrival airports</span>
+          <div class="airline-tags" id="alert-arr-tags"></div>
+          <input class="field-input" type="text" id="arr-airport-a" placeholder="Add airports (e.g. FCO, MXP, BCN)" autocomplete="off">
           <div class="ac-list" id="arr-ac-a"></div>
         </div>
       </div>
@@ -1094,6 +1216,22 @@ select.field-input {
     </form>
 
     <div id="alerts-list" style="display:none"></div>
+
+    <!-- Discover -->
+    <div id="discover-form" style="display:none">
+      <div class="form-row">
+        <div class="field">
+          <span class="field-label">Your airport</span>
+          <input class="field-input" type="text" id="home-airport" placeholder="Airport or city" autocomplete="off">
+          <div class="ac-list" id="home-ac"></div>
+        </div>
+        <div class="field" style="display:flex;align-items:end;gap:8px">
+          <button type="button" class="btn-primary" onclick="findDeals()" id="btn-discover" style="margin-top:0">Find deals</button>
+        </div>
+      </div>
+      <p class="form-hint">Shows the cheapest one-way prices to popular destinations in the next 60 days. Updates every 12 hours.</p>
+    </div>
+    <div id="discover-results" style="display:none"></div>
   </div>
 
   <div id="recent"></div>
@@ -1105,7 +1243,10 @@ select.field-input {
 <script>
 let airports = [];
 let airlinesList = [];
+let countriesList = [];
 let selectedAirlines = new Set();
+let alertDepAirports = new Set();
+let alertArrAirports = new Set();
 let currentMode = 'flights';
 let lastDateResults = null;
 let dateViewMode = 'grid';
@@ -1129,10 +1270,12 @@ let dateViewMode = 'grid';
     }
   });
 
-  try { airports = await fetch('/api/airports').then(r => r.json()); }
+  try { airports = await fetch('api/airports').then(r => r.json()); }
   catch (e) { console.error('Failed to load airports:', e); }
-  try { airlinesList = await fetch('/api/airlines').then(r => r.json()); }
+  try { airlinesList = await fetch('api/airlines').then(r => r.json()); }
   catch (e) { console.error('Failed to load airlines:', e); }
+  try { countriesList = await fetch('api/countries').then(r => r.json()); }
+  catch (e) { console.error('Failed to load countries:', e); }
 
   setupAC('dep-airport', 'dep-ac');
   setupAC('arr-airport', 'arr-ac');
@@ -1140,7 +1283,10 @@ let dateViewMode = 'grid';
   setupAC('arr-airport-d', 'arr-ac-d');
   setupAC('dep-airport-a', 'dep-ac-a');
   setupAC('arr-airport-a', 'arr-ac-a');
+  setupAC('home-airport', 'home-ac');
   setupAirlineAC();
+  setupAlertDepAC();
+  setupAlertArrAC();
   renderRecent();
   loadFromHash();
 })();
@@ -1152,8 +1298,14 @@ function setMode(mode) {
   document.getElementById('dates-form').style.display = mode === 'dates' ? '' : 'none';
   document.getElementById('alerts-form').style.display = mode === 'alerts' ? '' : 'none';
   document.getElementById('alerts-list').style.display = mode === 'alerts' ? '' : 'none';
+  document.getElementById('discover-form').style.display = mode === 'discover' ? '' : 'none';
+  document.getElementById('discover-results').style.display = mode === 'discover' ? '' : 'none';
   document.getElementById('results').innerHTML = '';
   if (mode === 'alerts') loadAlerts();
+  if (mode === 'discover') {
+    const saved = localStorage.getItem('skyfare_home_airport');
+    if (saved) { document.getElementById('home-airport').value = saved; loadDiscover(); }
+  }
 }
 
 function toggleReturn() {
@@ -1276,7 +1428,7 @@ async function handleFlightSearch(e) {
     airlines: selectedAirlines.size ? [...selectedAirlines] : null,
   };
   try {
-    const res = await fetch('/api/search/flights', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch('api/search/flights', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Search failed');
     renderFlights(data.results, tripType === 'round_trip');
@@ -1297,9 +1449,10 @@ function renderFlights(results, isRT) {
     <button class="btn-share" onclick="copyShareLink()">Copy link</button>
   </div>`;
 
-  results.forEach(r => {
+  results.forEach((r, idx) => {
     const card = document.createElement('div');
     card.className = 'flight-card';
+    card.style.animationDelay = `${idx * 60}ms`;
     const o = r.outbound;
     const stopsText = o.stops === 0 ? 'Direct' : o.stops + ' stop' + (o.stops > 1 ? 's' : '');
     const stopsClass = o.stops === 0 ? ' direct' : '';
@@ -1369,7 +1522,7 @@ async function handleDateSearch(e) {
     max_stops: document.getElementById('max-stops-d').value,
   };
   try {
-    const res = await fetch('/api/search/dates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch('api/search/dates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Search failed');
     lastDateResults = data.results;
@@ -1588,11 +1741,107 @@ function copyShareLink() {
   });
 }
 
+// ── Alert departure multi-select ──
+function setupAlertDepAC() {
+  const input = document.getElementById('dep-airport-a');
+  const list = document.getElementById('dep-ac-a');
+  let hl = -1;
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toUpperCase();
+    if (q.length < 1) { list.classList.remove('show'); return; }
+    const m = airports.filter(a =>
+      !alertDepAirports.has(a.code) && (a.code.includes(q) || a.name.toUpperCase().includes(q))
+    ).slice(0, 8);
+    if (!m.length) { list.classList.remove('show'); return; }
+    list.innerHTML = m.map(a =>
+      `<div class="ac-item" data-code="${a.code}"><span class="code">${a.code}</span><span class="name">${a.name}</span></div>`
+    ).join('');
+    list.classList.add('show');
+    hl = -1;
+    list.querySelectorAll('.ac-item').forEach(item => {
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        alertDepAirports.add(item.dataset.code);
+        renderAlertDepTags();
+        input.value = '';
+        list.classList.remove('show');
+      });
+    });
+  });
+  input.addEventListener('keydown', (e) => {
+    const items = list.querySelectorAll('.ac-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); hl = Math.min(hl + 1, items.length - 1); items.forEach((it, i) => it.classList.toggle('highlighted', i === hl)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); hl = Math.max(hl - 1, 0); items.forEach((it, i) => it.classList.toggle('highlighted', i === hl)); }
+    else if (e.key === 'Enter' && hl >= 0) { e.preventDefault(); items[hl].click(); }
+    else if (e.key === 'Backspace' && !input.value && alertDepAirports.size) {
+      alertDepAirports.delete([...alertDepAirports].pop());
+      renderAlertDepTags();
+    }
+  });
+  input.addEventListener('blur', () => setTimeout(() => list.classList.remove('show'), 200));
+}
+function renderAlertDepTags() {
+  const c = document.getElementById('alert-dep-tags');
+  c.innerHTML = [...alertDepAirports].map(code => {
+    const ap = airports.find(a => a.code === code);
+    return `<span class="airline-tag">${code}${ap ? ' — ' + ap.name : ''}<button type="button" onclick="alertDepAirports.delete('${code}');renderAlertDepTags()">&times;</button></span>`;
+  }).join('');
+}
+
+// ── Alert arrival multi-select ──
+function setupAlertArrAC() {
+  const input = document.getElementById('arr-airport-a');
+  const list = document.getElementById('arr-ac-a');
+  let hl = -1;
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toUpperCase();
+    if (q.length < 1) { list.classList.remove('show'); return; }
+    const m = airports.filter(a =>
+      !alertArrAirports.has(a.code) && (a.code.includes(q) || a.name.toUpperCase().includes(q))
+    ).slice(0, 8);
+    if (!m.length) { list.classList.remove('show'); return; }
+    list.innerHTML = m.map(a =>
+      `<div class="ac-item" data-code="${a.code}"><span class="code">${a.code}</span><span class="name">${a.name}</span></div>`
+    ).join('');
+    list.classList.add('show');
+    hl = -1;
+    list.querySelectorAll('.ac-item').forEach(item => {
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        alertArrAirports.add(item.dataset.code);
+        renderAlertArrTags();
+        input.value = '';
+        list.classList.remove('show');
+      });
+    });
+  });
+  input.addEventListener('keydown', (e) => {
+    const items = list.querySelectorAll('.ac-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); hl = Math.min(hl + 1, items.length - 1); items.forEach((it, i) => it.classList.toggle('highlighted', i === hl)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); hl = Math.max(hl - 1, 0); items.forEach((it, i) => it.classList.toggle('highlighted', i === hl)); }
+    else if (e.key === 'Enter' && hl >= 0) { e.preventDefault(); items[hl].click(); }
+    else if (e.key === 'Backspace' && !input.value && alertArrAirports.size) {
+      alertArrAirports.delete([...alertArrAirports].pop());
+      renderAlertArrTags();
+    }
+  });
+  input.addEventListener('blur', () => setTimeout(() => list.classList.remove('show'), 200));
+}
+function renderAlertArrTags() {
+  const c = document.getElementById('alert-arr-tags');
+  c.innerHTML = [...alertArrAirports].map(code => {
+    const ap = airports.find(a => a.code === code);
+    return `<span class="airline-tag">${code}${ap ? ' — ' + ap.name : ''}<button type="button" onclick="alertArrAirports.delete('${code}');renderAlertArrTags()">&times;</button></span>`;
+  }).join('');
+}
+
 // ── Alerts ──
 async function loadAlerts() {
   const div = document.getElementById('alerts-list');
   try {
-    const alerts = await fetch('/api/alerts').then(r => r.json());
+    const alerts = await fetch('api/alerts').then(r => r.json());
     if (!alerts.length) { div.innerHTML = '<div class="empty-state">No price alerts yet. Create one above.</div>'; return; }
     div.innerHTML = alerts.map(a => {
       const priceText = a.current_price != null ? `$${a.current_price.toFixed(0)}` : '—';
@@ -1601,9 +1850,11 @@ async function loadAlerts() {
         ? '<span class="alert-badge triggered">Triggered</span>'
         : '<span class="alert-badge watching">Watching</span>';
       const reactivateBtn = a.triggered ? `<button onclick="reactivateAlert('${a.id}')">Reactivate</button>` : '';
+      const depStr = (a.departure_airports || [a.departure_airport]).join(', ');
+      const arrStr = (a.arrival_airports || [a.arrival_airport]).join(', ');
       return `<div class="alert-card">
         <div class="alert-info">
-          <div class="alert-route">${a.departure_airport} → ${a.arrival_airport}</div>
+          <div class="alert-route">${depStr} → ${arrStr}</div>
           <div class="alert-meta">Target: <strong>$${a.target_price.toFixed(0)}</strong> · Current: <strong>${priceText}</strong></div>
           <div class="alert-checked">Checked: ${checked}</div>
         </div>
@@ -1624,12 +1875,14 @@ async function createAlert(e) {
   const btn = document.getElementById('btn-alert');
   btn.disabled = true;
   try {
-    const res = await fetch('/api/alerts', {
+    if (!alertDepAirports.size) throw new Error('Add at least one departure airport');
+    if (!alertArrAirports.size) throw new Error('Add at least one arrival airport');
+    const res = await fetch('api/alerts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        departure_airport: extractCode(document.getElementById('dep-airport-a').value),
-        arrival_airport: extractCode(document.getElementById('arr-airport-a').value),
+        departure_airports: [...alertDepAirports],
+        arrival_airports: [...alertArrAirports],
         target_price: parseFloat(document.getElementById('target-price').value),
         seat_type: document.getElementById('seat-type-a').value,
         max_stops: document.getElementById('max-stops-a').value,
@@ -1638,6 +1891,10 @@ async function createAlert(e) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Failed to create alert');
     document.getElementById('target-price').value = '';
+    alertDepAirports.clear();
+    alertArrAirports.clear();
+    renderAlertDepTags();
+    renderAlertArrTags();
     loadAlerts();
   } catch (err) {
     document.getElementById('alerts-list').innerHTML = `<div class="error-msg">${err.message}</div>`;
@@ -1645,13 +1902,85 @@ async function createAlert(e) {
 }
 
 async function deleteAlert(id) {
-  await fetch(`/api/alerts/${id}`, { method: 'DELETE' });
+  await fetch(`api/alerts/${id}`, { method: 'DELETE' });
   loadAlerts();
 }
 
 async function reactivateAlert(id) {
-  await fetch(`/api/alerts/${id}/reactivate`, { method: 'POST' });
+  await fetch(`api/alerts/${id}/reactivate`, { method: 'POST' });
   loadAlerts();
+}
+
+// ── Discover ──
+async function findDeals() {
+  const code = extractCode(document.getElementById('home-airport').value);
+  if (!code) return;
+  localStorage.setItem('skyfare_home_airport', code);
+  loadDiscover();
+}
+
+async function loadDiscover() {
+  const code = extractCode(document.getElementById('home-airport').value);
+  if (!code) return;
+  const div = document.getElementById('discover-results');
+  div.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading deals...</p></div>';
+  try {
+    const data = await fetch(`api/discover?dep=${code}`).then(r => r.json());
+    if (!data.results || !data.results.length) {
+      div.innerHTML = '<div class="loading"><div class="spinner"></div><p>Searching destinations — this may take a minute...</p></div>';
+      setTimeout(() => loadDiscover(), 5000);
+      return;
+    }
+    const prices = data.results.map(r => r.price);
+    const minP = Math.min(...prices), maxP = Math.max(...prices);
+    const ago = data.updated_at ? timeAgo(data.updated_at) : '';
+
+    div.innerHTML = `<div class="result-header">
+      <span class="discover-updated">Updated ${ago}<button class="btn-refresh" onclick="forceRefreshDeals()">Refresh</button></span>
+    </div>
+    <div class="discover-list">${data.results.map((r, i) => {
+      const ratio = maxP === minP ? 0 : (r.price - minP) / (maxP - minP);
+      const hue = Math.round(120 * (1 - ratio));
+      const d = new Date(r.date + 'T00:00:00');
+      const img = r.image
+        ? `<img class="discover-img" src="${r.image}" alt="${r.city}" loading="lazy">`
+        : `<div class="discover-img-placeholder">${r.city.slice(0,2).toUpperCase()}</div>`;
+      return `<div class="discover-row" style="animation-delay:${i * 50}ms">
+        ${img}
+        <div class="discover-info">
+          <div class="discover-city">${r.city}</div>
+          <div class="discover-code">${r.code}</div>
+        </div>
+        <div class="discover-right">
+          <div class="discover-price" style="color:hsl(${hue},70%,35%)">$${r.price.toFixed(0)}</div>
+          <div class="discover-date">${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}</div>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+  } catch (err) {
+    div.innerHTML = `<div class="error-msg">${err.message}</div>`;
+  }
+}
+
+async function forceRefreshDeals() {
+  const code = extractCode(document.getElementById('home-airport').value);
+  if (!code) return;
+  const div = document.getElementById('discover-results');
+  div.innerHTML = '<div class="loading"><div class="spinner"></div><p>Refreshing all destinations — this may take a couple of minutes...</p></div>';
+  try {
+    const data = await fetch(`api/discover/refresh?dep=${code}`, { method: 'POST' }).then(r => r.json());
+    loadDiscover();
+  } catch (err) {
+    div.innerHTML = `<div class="error-msg">${err.message}</div>`;
+  }
+}
+
+function timeAgo(iso) {
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 // ── Helpers ──
