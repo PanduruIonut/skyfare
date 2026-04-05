@@ -8,55 +8,58 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --primary: #4f46e5;
-  --primary-light: #818cf8;
-  --primary-dark: #3730a3;
-  --primary-50: #eef2ff;
-  --accent: #06b6d4;
-  --bg: #f8fafc;
+  /* Stripe-inspired palette */
+  --primary: #533afd;
+  --primary-light: #7a68ff;
+  --primary-dark: #3d1fdb;
+  --primary-50: #f0edff;
+  --accent: #0abde3;
+  --bg: #f6f9fc;
   --card: #ffffff;
-  --text: #0f172a;
-  --text-secondary: #64748b;
-  --text-tertiary: #94a3b8;
-  --border: #e2e8f0;
-  --border-hover: #cbd5e1;
-  --green: #059669;
+  --text: #0a2540;
+  --text-secondary: #425466;
+  --text-tertiary: #8898aa;
+  --border: #e3e8ee;
+  --border-hover: #c1c9d2;
+  --green: #0d9488;
   --green-bg: #ecfdf5;
-  --red: #dc2626;
+  --red: #df1b41;
   --red-bg: #fef2f2;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
-  --shadow-md: 0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -2px rgba(0,0,0,.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -4px rgba(0,0,0,.1);
-  --radius: 12px;
-  --radius-sm: 8px;
-  /* aliases for new-feature CSS that references old var names */
+  /* Stripe blue-tinted shadows */
+  --shadow-sm: 0 2px 5px -1px rgba(50,50,93,.12), 0 1px 3px -1px rgba(0,0,0,.08);
+  --shadow-md: 0 6px 12px -2px rgba(50,50,93,.15), 0 3px 7px -3px rgba(0,0,0,.1);
+  --shadow-lg: 0 13px 27px -5px rgba(50,50,93,.2), 0 8px 16px -8px rgba(0,0,0,.15);
+  --radius: 8px;
+  --radius-sm: 6px;
+  /* aliases */
   --text-primary: var(--text);
   --surface: var(--card);
   --surface-secondary: var(--bg);
-  --surface-tertiary: #f1f5f9;
-  --border-light: #f0f0f3;
+  --surface-tertiary: #edf1f7;
+  --border-light: #f0f3f7;
   --accent-blue: var(--primary);
   --accent-soft: var(--primary-50);
-  --accent-muted: #c7d2fe;
+  --accent-muted: #d4ccfe;
   --success: var(--green);
   --success-soft: var(--green-bg);
   --error: var(--red);
   --error-soft: var(--red-bg);
-  --shadow-xs: 0 1px 2px rgba(0,0,0,.04);
+  --shadow-xs: 0 1px 3px rgba(50,50,93,.08), 0 1px 2px rgba(0,0,0,.04);
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
 }
 
-/* ── Hero (replaces topbar) ── */
+/* ── Hero ── */
 .topbar { display: none; }
 .hero {
-  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 50%, var(--accent) 100%);
+  background: var(--text);
   padding: 48px 16px 80px;
   text-align: center;
   position: relative;
@@ -66,30 +69,42 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background: radial-gradient(ellipse 80% 60% at 50% -10%, var(--primary) 0%, transparent 70%);
+  opacity: .5;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 60% 50% at 80% 20%, var(--accent) 0%, transparent 70%);
+  opacity: .2;
 }
 .hero h1 {
-  font-size: 36px;
-  font-weight: 800;
+  font-size: 40px;
+  font-weight: 700;
   color: #fff;
-  letter-spacing: -0.5px;
+  letter-spacing: -1px;
   position: relative;
+  z-index: 1;
 }
 .hero h1 span {
-  background: linear-gradient(135deg, #fff 60%, rgba(255,255,255,.7));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #fff;
+  -webkit-text-fill-color: unset;
+  background: none;
 }
 .hero p {
-  color: rgba(255,255,255,.75);
-  font-size: 16px;
-  margin-top: 8px;
+  color: rgba(255,255,255,.55);
+  font-size: 15px;
+  font-weight: 400;
+  margin-top: 6px;
   position: relative;
+  z-index: 1;
+  letter-spacing: 0;
 }
 
-/* ── Layout (replaces .page) ── */
+/* ── Layout ── */
 .page {
-  max-width: 900px;
+  max-width: 880px;
   margin: -48px auto 40px;
   padding: 0 16px;
   position: relative;
@@ -102,57 +117,57 @@ body {
   background: var(--card);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
-  border: 1px solid var(--border);
-  padding: 24px;
+  border: none;
+  padding: 28px;
   margin-bottom: 20px;
 }
 
 /* ── Tabs ── */
 .tabs {
   display: flex;
-  background: var(--bg);
-  border-radius: var(--radius-sm);
-  padding: 4px;
+  gap: 2px;
   margin-bottom: 24px;
-  border-bottom: none;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
 }
 .tab {
-  flex: 1;
+  flex: none;
   background: none;
   border: none;
-  padding: 10px 16px;
+  padding: 10px 18px 12px;
   margin-right: 0;
-  margin-bottom: 0;
+  margin-bottom: -1px;
   font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-weight: 500;
+  color: var(--text-tertiary);
   cursor: pointer;
-  border-radius: 6px;
-  border-bottom: none;
-  transition: all .2s;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  transition: color .15s;
 }
-.tab:hover { color: var(--text); }
+.tab:hover { color: var(--text-secondary); }
 .tab.active {
-  background: var(--card);
   color: var(--primary);
-  box-shadow: 0 1px 2px rgba(0,0,0,.05);
-  border-bottom-color: transparent;
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+  background: none;
+  box-shadow: none;
 }
 
 /* ── Trip toggle ── */
 .trip-toggle {
   display: inline-flex;
-  gap: 4px;
+  gap: 2px;
   margin-bottom: 20px;
-  background: var(--bg);
-  border-radius: 6px;
+  background: var(--surface-tertiary);
+  border-radius: var(--radius-sm);
   padding: 3px;
 }
 .trip-toggle label {
   font-size: 13px;
   font-weight: 500;
-  padding: 6px 14px;
-  border-radius: 4px;
+  padding: 7px 16px;
+  border-radius: 5px;
   cursor: pointer;
   color: var(--text-secondary);
   transition: all .2s;
@@ -161,7 +176,7 @@ body {
 .trip-toggle label:has(input:checked) {
   background: var(--card);
   color: var(--text);
-  box-shadow: 0 1px 2px rgba(0,0,0,.05);
+  box-shadow: var(--shadow-xs);
 }
 .trip-toggle input { display: none; }
 
@@ -189,20 +204,21 @@ body {
 
 .field-input {
   width: 100%;
-  height: 42px;
+  height: 44px;
   padding: 0 14px;
-  border: 1.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text);
   background: var(--card);
-  transition: all .2s;
+  box-shadow: var(--shadow-xs);
+  transition: border-color .15s, box-shadow .15s;
   appearance: none;
   -webkit-appearance: none;
 }
 select.field-input {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238898aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 36px;
@@ -212,7 +228,7 @@ select.field-input {
 .field-input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-50);
+  box-shadow: 0 0 0 3px rgba(83,58,253,.12);
 }
 
 /* Airport fields row */
@@ -301,26 +317,28 @@ select.field-input {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 46px;
-  padding: 0 28px;
-  font-size: 15px;
-  font-weight: 700;
+  height: 44px;
+  padding: 0 24px;
+  font-size: 14px;
+  font-weight: 600;
   color: #fff;
-  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  background: var(--primary);
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all .2s;
+  transition: all .15s;
   margin-top: 6px;
   width: 100%;
-  letter-spacing: .2px;
+  letter-spacing: 0;
+  box-shadow: 0 2px 5px rgba(83,58,253,.25), 0 1px 2px rgba(0,0,0,.1);
 }
 .btn-primary:hover {
-  box-shadow: 0 4px 12px rgba(79,70,229,.4);
+  background: var(--primary-light);
+  box-shadow: 0 4px 12px rgba(83,58,253,.35), 0 2px 4px rgba(0,0,0,.1);
   transform: translateY(-1px);
 }
-.btn-primary:active { transform: translateY(0); }
-.btn-primary:disabled { opacity: .7; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn-primary:active { transform: translateY(0); box-shadow: 0 1px 3px rgba(83,58,253,.2); }
+.btn-primary:disabled { opacity: .6; cursor: not-allowed; transform: none; box-shadow: none; }
 .btn-primary svg { width: 16px; height: 16px; }
 
 .form-hint {
@@ -338,12 +356,12 @@ select.field-input {
 }
 .spinner {
   display: inline-block;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: 3px solid var(--border);
   border-top-color: var(--primary);
   border-radius: 50%;
-  animation: spin .7s linear infinite;
+  animation: spin .6s linear infinite;
   margin: 0 auto 16px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -361,15 +379,16 @@ select.field-input {
 /* ── Flight card ── */
 .flight-card {
   background: var(--card);
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--radius);
   margin-bottom: 12px;
   transition: all .2s;
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 .flight-card:hover {
-  border-color: var(--border-hover);
   box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .fc-body { padding: 20px; }
@@ -386,10 +405,10 @@ select.field-input {
   display: inline-flex;
   align-items: center;
   font-size: 12px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 20px;
-  background: var(--bg);
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: var(--surface-tertiary);
   color: var(--text-secondary);
 }
 .fc-tag.direct {
@@ -497,13 +516,13 @@ select.field-input {
   content: '';
   position: absolute;
   top: 50%;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   transform: translateY(-50%);
 }
-.leg-connector-line::before { left: 0; background: var(--primary); }
-.leg-connector-line::after { right: 0; background: var(--primary); }
+.leg-connector-line::before { left: -1px; background: var(--primary); box-shadow: 0 0 0 2px var(--primary-50); }
+.leg-connector-line::after { right: -1px; background: var(--primary); box-shadow: 0 0 0 2px var(--primary-50); }
 .leg-connector-dur {
   font-size: 10px;
   color: var(--text-tertiary);
@@ -795,17 +814,17 @@ select.field-input {
   align-items: center;
   gap: 16px;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: none;
+  border-radius: var(--radius);
   padding: 0;
   overflow: hidden;
   transition: all .2s;
   cursor: default;
+  box-shadow: var(--shadow-sm);
 }
 .discover-row:hover {
-  border-color: var(--border-hover);
   box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
 }
 .discover-img {
   width: 110px;
@@ -986,7 +1005,7 @@ select.field-input {
 /* ── Responsive ── */
 @media (max-width: 640px) {
   .hero { padding: 32px 16px 64px; }
-  .hero h1 { font-size: 28px; }
+  .hero h1 { font-size: 30px; }
   .page { margin-top: -32px; }
   .card { padding: 16px; }
   .form-row { grid-template-columns: 1fr; }
@@ -1040,10 +1059,10 @@ select.field-input {
 
 .auth-card {
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
-  border: 1px solid var(--border);
-  padding: 32px;
+  border: none;
+  padding: 36px;
   max-width: 400px;
   margin: 0 auto 24px;
   animation: fadeInUp .35s ease both;
